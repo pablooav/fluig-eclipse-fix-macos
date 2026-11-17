@@ -1,0 +1,11 @@
+# Backups gerados pelo próprio script
+*.bak
+*.bak.*
+*.jar.bak*
+
+# Artefatos de teste
+tests/tmp/
+tests/.cache/
+
+# macOS
+.DS_Store
