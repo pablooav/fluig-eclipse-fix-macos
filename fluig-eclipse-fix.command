@@ -300,10 +300,20 @@ fi
 # =============================================================================
 log_section "Fix 4: Nashorn standalone (Java 21 — ScriptEngine 'js')"
 
+# O Nashorn foi removido do JDK no Java 15 (JEP 372). Mas a partir da 1.8.2.x a
+# TOTVS passou a embarcar o Rhino como ScriptEngine no proprio plugin. Quando o
+# plugin ja traz um motor JS, injetar Nashorn e desnecessario e ainda cria dois
+# engines concorrentes registrados via ServiceLoader. Detectamos a capacidade em
+# vez de comparar numero de versao -- e mais robusto entre builds da TOTVS.
+RHINO_LIBS=$(unzip -l "$ECLIPSE_JAR" 2>/dev/null | grep -oE "META-INF/lib/[^ ]*rhino[^ ]*\.jar" | sort -u | tr '\n' ' ')
+
 if [ -z "$ECLIPSE_JAR" ]; then
     log_warn "Plugin ecm.designer.eclipse não encontrado. Pulando Fix 4."
 elif unzip -l "$ECLIPSE_JAR" 2>/dev/null | grep -q "META-INF/lib/nashorn-core.jar"; then
     log_warn "nashorn-core já está no Bundle-ClassPath. Pulando Fix 4."
+elif [ -n "$RHINO_LIBS" ]; then
+    log_warn "O plugin já embarca motor JS próprio: ${RHINO_LIBS}"
+    log_warn "Nashorn é desnecessário nesta versão. Pulando Fix 4 (nada será baixado)."
 else
     # Download nashorn-core
     if [ -f "$NASHORN_LOCAL" ]; then
@@ -356,23 +366,40 @@ else
         cp "$ASM_LOCAL/asm-util.jar"    "$WORKDIR_N/extracted/META-INF/lib/"
 
         python3 - "$WORKDIR_N/extracted/META-INF/MANIFEST.MF" << 'PYEOF'
-import sys
+import sys, re
 path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
+with open(path, 'r', newline='') as f:
+    raw = f.read()
+
+# A spec JAR limita linhas do manifesto a 72 bytes e continua com um espaco.
+# A ancora pode cair em cima de uma dobra, entao desdobramos antes de procurar.
+unfolded = re.sub(r'\r?\n ', '', raw)
+
 old = 'META-INF/lib/jaxws-api.jar'
-new = ('META-INF/lib/jaxws-api.jar,\n'
-       ' META-INF/lib/nashorn-core.jar,\n'
-       ' META-INF/lib/asm.jar,\n'
-       ' META-INF/lib/asm-commons.jar,\n'
-       ' META-INF/lib/asm-tree.jar,\n'
-       ' META-INF/lib/asm-util.jar')
-if old not in content:
+if old not in unfolded:
     print("ERRO: 'jaxws-api.jar' nao encontrado no Bundle-ClassPath.")
     sys.exit(1)
-content = content.replace(old, new, 1)
-with open(path, 'w') as f:
-    f.write(content)
+
+add = ',' + ','.join('META-INF/lib/' + j for j in
+                     ['nashorn-core.jar', 'asm.jar', 'asm-commons.jar',
+                      'asm-tree.jar', 'asm-util.jar'])
+unfolded = unfolded.replace(old, old + add, 1)
+
+# Redobra em 72 bytes: continuacoes comecam com um espaco.
+out = []
+for line in unfolded.split('\n'):
+    b = line.encode('utf-8')
+    if len(b) <= 72:
+        out.append(line)
+        continue
+    out.append(b[:72].decode('utf-8', 'ignore'))
+    rest = b[72:]
+    while rest:
+        out.append(' ' + rest[:71].decode('utf-8', 'ignore'))
+        rest = rest[71:]
+
+with open(path, 'w', newline='') as f:
+    f.write('\r\n'.join(out) if '\r\n' in raw else '\n'.join(out))
 PYEOF
         MANIFEST_STATUS=$?
 
