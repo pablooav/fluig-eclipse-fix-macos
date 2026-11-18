@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Uma execução por branch: pushes novos cancelam a anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (sintaxe + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sintaxe bash
+        run: |
+          bash -n fluig-eclipse-fix.command
+          bash -n tests/run-tests.sh
+          bash -n tests/lib/assert.sh
+          bash -n tests/lib/fixtures.sh
+
+      - name: Sintaxe python
+        run: python3 -m py_compile tests/lib/mkmanifest.py
+
+      - name: Permissão de execução
+        run: |
+          test -x fluig-eclipse-fix.command || { echo "::error::fluig-eclipse-fix.command precisa do bit de execução (git update-index --chmod=+x)"; exit 1; }
+          test -x tests/run-tests.sh         || { echo "::error::tests/run-tests.sh precisa do bit de execução"; exit 1; }
+
+      # Bloqueante: só erros de verdade.
+      - name: ShellCheck (erros)
+        run: shellcheck --severity=error --external-sources fluig-eclipse-fix.command tests/run-tests.sh tests/lib/assert.sh tests/lib/fixtures.sh
+
+      # Informativo: avisos de estilo não reprovam o PR.
+      - name: ShellCheck (avisos, não bloqueante)
+        continue-on-error: true
+        run: shellcheck --severity=warning --external-sources fluig-eclipse-fix.command tests/run-tests.sh tests/lib/assert.sh tests/lib/fixtures.sh
+
+  test:
+    name: Testes (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest é a plataforma-alvo real (Apple Silicon).
+        # ubuntu-latest roda junto como canário rápido e barato.
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Garante zip/unzip
+        if: runner.os == 'Linux'
+        run: |
+          if ! command -v zip >/dev/null || ! command -v unzip >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq zip unzip
+          fi
+
+      - name: Ferramentas disponíveis
+        run: |
+          bash --version | head -1
+          python3 --version
+          zip -v | head -2
+          unzip -v | head -1
+
+      # A suíte roda com --offline sobre um cache de artefatos falsos:
+      # zero acesso à rede, zero dependência de um Eclipse instalado.
+      - name: Suíte de testes
+        run: ./tests/run-tests.sh
+
+  rede:
+    name: URLs do Maven Central
+    runs-on: ubuntu-latest
+    # Só informativo: a indisponibilidade do Maven Central não deve reprovar
+    # um PR que não mexeu em nada disso.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confere que as URLs baixadas pelo script ainda existem
+        run: |
+          status=0
+          # URLs literais declaradas no script (rt.jar e nashorn-core)...
+          urls=$(grep -oE 'https://repo1\.maven\.org/[^"]+\.jar' fluig-eclipse-fix.command | sort -u)
+          # ...mais o ASM, que o script monta a partir de ASM_BASE + artefato.
+          urls="$urls
+          https://repo1.maven.org/maven2/org/ow2/asm/asm/9.5/asm-9.5.jar
+          https://repo1.maven.org/maven2/org/ow2/asm/asm-commons/9.5/asm-commons-9.5.jar
+          https://repo1.maven.org/maven2/org/ow2/asm/asm-tree/9.5/asm-tree-9.5.jar
+          https://repo1.maven.org/maven2/org/ow2/asm/asm-util/9.5/asm-util-9.5.jar"
+          for u in $urls; do
+            if curl -sfI --max-time 30 "$u" >/dev/null; then
+              echo "ok   $u"
+            else
+              echo "::warning::indisponível: $u"
+              status=1
+            fi
+          done
+          exit $status
