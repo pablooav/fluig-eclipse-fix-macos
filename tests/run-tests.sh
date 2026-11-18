@@ -428,10 +428,10 @@ caso_offline_sem_cache_nao_corrompe() {
 }
 
 caso_cenario_2009_completo() {
-    # Perfil real do Eclipse M1 200 com plugin 2.0.0.9 após rodar o fix:
+    # Perfil de instalação com plugin recente (2.0.x) já corrigido:
     # nada para baixar, só eclipse.ini e cache OSGi.
     local t app mjar ejar
-    t=$(sandbox); app=$(fixture_eclipse "$t" "Eclipse M1 200" completo)
+    t=$(sandbox); app=$(fixture_eclipse "$t" "Eclipse Plugin Recente" completo)
     fixture_model_plugin  "$app" 2.0.0.9 2.3.5
     fixture_eclipse_plugin "$app" 2.0.0.9 rhino
     mjar=$(model_jar "$app"); ejar=$(eclipse_jar "$app")
@@ -451,7 +451,7 @@ caso_cenario_2009_completo() {
 caso_cenario_1713_completo() {
     # Perfil do plugin antigo: precisa das duas correções pesadas.
     local t app mjar ejar
-    t=$(sandbox); app=$(fixture_eclipse "$t" "Eclipse M1 171" completo)
+    t=$(sandbox); app=$(fixture_eclipse "$t" "Eclipse Plugin Antigo" completo)
     fixture_model_plugin  "$app" 1.7.1.3 2.3.1
     fixture_eclipse_plugin "$app" 1.7.1.3 folded
     mjar=$(model_jar "$app"); ejar=$(eclipse_jar "$app")
@@ -468,7 +468,7 @@ caso_cenario_1713_completo() {
 
 caso_caminho_com_espacos_e_acentos() {
     local t app ini
-    t=$(sandbox); app=$(fixture_eclipse "$t" "Eclipse M1 200 (cópia) — teste" completo)
+    t=$(sandbox); app=$(fixture_eclipse "$t" "Eclipse IDE 2026-03 (cópia) — teste" completo)
     fixture_model_plugin  "$app" 2.0.0.9 2.3.1
     fixture_eclipse_plugin "$app" 2.0.0.9 rhino
     ini="$app/Contents/Eclipse/eclipse.ini"

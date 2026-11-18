@@ -1,80 +1,204 @@
 # fluig-eclipse-fix-macos
 
-Correções de compatibilidade para rodar o **plugin TOTVS Fluig Studio** (`com.totvs.tds.ecm.*`) no Eclipse em **macOS Apple Silicon** com **Java 17+**.
+[![CI](https://github.com/pablooav/fluig-eclipse-fix-macos/actions/workflows/ci.yml/badge.svg)](https://github.com/pablooav/fluig-eclipse-fix-macos/actions/workflows/ci.yml)
 
-O plugin foi construído para um mundo pré-JPMS (Java 8/11). Em JDKs modernos ele quebra em pontos distintos, todos silenciosos ou com mensagens que não apontam a causa. Este repositório contém o script que aplica as correções e a documentação do *porquê* de cada uma.
+Faz o **plugin TOTVS Fluig Studio** funcionar no Eclipse em **macOS Apple Silicon** com Java 17 ou superior.
+
+O plugin foi construído para um mundo pré-JPMS (Java 8/11). Em JDKs modernos ele instala, resolve e *aparenta* funcionar — até você tentar exportar um processo, subir um formulário ou abrir a árvore de servidores. As falhas são silenciosas ou trazem mensagens que não apontam a causa.
+
+Este repositório traz um script que aplica as correções necessárias e, mais importante, **documenta o porquê de cada uma** — para você auditar o que será feito na sua instalação antes de rodar.
 
 ```bash
 ./fluig-eclipse-fix.command
 ```
 
-O script lista os Eclipse encontrados em `/Applications/Eclipses` e `/Applications`, pede o nome e aplica apenas o que for necessário naquela instalação.
+---
 
-> **Feche o Eclipse antes de rodar.** O script reempacota jars dentro de `plugins/` e limpa o cache OSGi.
+## Aviso
+
+- **Projeto não oficial.** Sem vínculo com a TOTVS ou com a Eclipse Foundation. A TOTVS homologa o Fluig Studio apenas para **Windows e Linux** — macOS não é plataforma suportada por eles, e é exatamente por isso que este repositório existe.
+- **O script modifica a sua instalação do Eclipse:** reescreve o `eclipse.ini`, reempacota jars dentro de `plugins/` e apaga o cache OSGi. Tudo que é alterado ganha backup, e a reversão está documentada [no fim](#backups-e-reversão).
+- **Feche o Eclipse antes de rodar.**
+- Nenhuma correção depende de credencial, servidor ou dado do seu ambiente. O script só lê e escreve dentro do bundle `.app` que você escolher.
 
 ---
 
 ## Índice
 
-- [Escopo](#escopo)
+- [Preciso disto?](#preciso-disto)
+- [Instalação do zero](#instalação-do-zero)
+- [Escopo e requisitos](#escopo-e-requisitos)
 - [De onde vem o JDK](#de-onde-vem-o-jdk)
+- [A partir de qual Java cada correção é necessária](#a-partir-de-qual-java-cada-correção-é-necessária)
 - [O problema](#o-problema)
 - [As correções](#as-correções)
 - [Aplicação condicional](#aplicação-condicional)
 - [Dependência de versão](#dependência-de-versão)
 - [Matriz de homologação](#matriz-de-homologação)
 - [Problemas conhecidos](#problemas-conhecidos)
+- [Histórico de correções no próprio script](#histórico-de-correções-no-próprio-script)
+- [Modo automatizado](#modo-automatizado)
 - [Testes](#testes)
+- [Integração contínua](#integração-contínua)
 - [Backups e reversão](#backups-e-reversão)
+- [Contribuindo](#contribuindo)
+- [Licença](#licença)
 
 ---
 
-## Escopo
+## Preciso disto?
 
-Alvo: **Eclipse nativo Apple Silicon (aarch64)**, releases modernas — `Eclipse IDE 2026-03` em diante.
+Se você está num Mac com Eclipse recente e o Fluig Studio instalado, provavelmente sim. Os sintomas:
 
-Fora de escopo:
+| Sintoma | Causa | Correção |
+|---|---|---|
+| Exportar processo/workflow falha com `NoClassDefFoundError: Could not initialize class com.sun.xml.ws.model.Injector` | reflexão bloqueada pelo JPMS | [Fix 1](#fix-1----add-opens-no-eclipseini) |
+| Exportar falha com erro de JAX-WS que não é o acima | biblioteca JAX-WS de 2018 | [Fix 3](#fix-3--rtjar-jax-ws-ri-231--235) |
+| `java.lang.Error: SWT Resource was not properly disposed` ao abrir a árvore de servidores | vazamento de `Image` no plugin | [Fix 2](#fix-2--reportnondisposedfalse) |
+| Erro de script / `ScriptEngine` nulo em plugins antigos (1.7.x) | Nashorn removido do JDK | [Fix 4](#fix-4--nashorn-standalone-no-bundle-classpath) |
+| Aplicou um patch e nada mudou | cache OSGi | [Fix 5](#fix-5--limpeza-do-cache-osgi) |
 
-- Eclipse x86_64 rodando sob Rosetta
-- Releases antigas presas ao Java 8 (Neon, Oxygen e similares)
-- Windows e Linux
+O script detecta o que é necessário e **pula o que não é** — rodar numa instalação já correta não faz mal e não baixa nada.
 
-A premissa de que o Eclipse roda sob **Java 21** vem desse recorte, e é o que torna as correções previsíveis — veja a seção seguinte.
+Dois erros comuns que aparecem no mesmo caminho mas **não** são deste escopo:
+
+- `SSLHandshakeException: No subject alternative names matching IP address ...` — o servidor Fluig foi cadastrado por IP e o certificado só tem nome DNS. Cadastre pelo hostname.
+- `UnknownHostException` no hostname do servidor — DNS do seu ambiente, não do plugin.
+
+---
+
+## Instalação do zero
+
+### 1. Eclipse
+
+Baixe em [eclipse.org/downloads/packages](https://www.eclipse.org/downloads/packages/) o pacote **Eclipse IDE for Enterprise Java and Web Developers**, arquitetura **macOS AArch64** (Apple Silicon).
+
+Qualquer release que rode em Java 17+ serve. Na prática, todas de 2024-09 em diante exigem Java 21 — veja [Escopo e requisitos](#escopo-e-requisitos) para conferir a sua.
+
+> Se você mantém mais de um Eclipse lado a lado, o script procura em `/Applications` e em `/Applications/Eclipses`. Criar essa pasta `Eclipses` é uma convenção prática, não um requisito — você também pode passar o caminho direto com `--eclipse`.
+
+### 2. Plugin Fluig Studio
+
+Com o Eclipse aberto: **Help → Install New Software… → Add…**
+
+Duas rotas:
+
+- **Update site.** Pegue o endereço atual na documentação oficial da TOTVS ([IDE Installation, no TDN](https://tdn.totvs.com/x/dlCtK)). Historicamente foi `http://update.fluig.com`, mas o TDN indica que o endereço mudou — confirme lá antes de usar. **Marque “Contact all update sites during install”**, senão a instalação falha por dependência não resolvida.
+- **Arquivo.** Baixe o `fluig-eclipse-plugin.zip` da documentação da TOTVS e use **Add… → Archive…**.
+
+Reinicie o Eclipse. A perspectiva fica em **Window → Open Perspective → Other… → Fluig**.
+
+Neste ponto o plugin está instalado e **ainda não funciona direito no macOS**. É aqui que entra o script.
+
+### 3. Rodar o script
+
+**Feche o Eclipse.**
+
+```bash
+git clone https://github.com/pablooav/fluig-eclipse-fix-macos.git
+cd fluig-eclipse-fix-macos
+./fluig-eclipse-fix.command
+```
+
+Se preferir baixar o ZIP pelo botão **Code** do GitHub, o macOS marca o arquivo como em quarentena e bloqueia a execução. Libere com:
+
+```bash
+chmod +x fluig-eclipse-fix.command && xattr -d com.apple.quarantine fluig-eclipse-fix.command
+```
+
+O script lista os Eclipse encontrados, pede o nome e aplica só o que for necessário. Leia a saída: ela diz, item por item, o que foi aplicado (`✓`), o que já estava certo (`–`) e o que falhou (`✗`).
+
+### 4. Validar
+
+Abra o Eclipse — a primeira inicialização é mais lenta, porque o cache OSGi está sendo reconstruído — e refaça a operação que te trouxe aqui: exportar um processo, subir um formulário, abrir a árvore de servidores.
+
+Funcionou? **[Contribua com uma linha na matriz de homologação](#contribuindo)** informando sua versão de Eclipse e de plugin. É o que faz este repositório valer para a próxima pessoa.
+
+---
+
+## Escopo e requisitos
+
+**Alvo:** Eclipse nativo Apple Silicon (aarch64) rodando em Java 17 ou superior.
+
+Para conferir a sua instalação:
+
+```bash
+grep -E "requiredJavaVersion" "/Applications/SEU-ECLIPSE.app/Contents/Eclipse/eclipse.ini"
+```
+
+Se aparecer `-Dosgi.requiredJavaVersion=17` ou maior, você está no escopo.
+
+**Fora de escopo:**
+
+- Eclipse x86_64 sob Rosetta
+- Releases antigas presas ao Java 8 (Neon, Oxygen e similares) — nelas o plugin funciona sem patch
+- Windows e Linux — plataformas que a TOTVS homologa; as correções não são necessárias lá
+
+**Ferramentas:** `curl`, `zip`, `unzip`, `python3`. Todas vêm com o macOS, exceto o `python3`, que chega com as Command Line Tools:
+
+```bash
+xcode-select --install
+```
+
+**Rede:** usada apenas quando algum download é de fato necessário (Fix 3 e Fix 4). Em instalações recentes do plugin, normalmente nenhum.
 
 ---
 
 ## De onde vem o JDK
 
-**O JDK vem junto com o Eclipse.** Os pacotes EPP (`Eclipse IDE for Enterprise Java and Web Developers` e afins) embarcam uma JRE **JustJ** dentro de `plugins/`, e o `eclipse.ini` aponta para ela via `-vm`. Não há instalação separada, e o JDK é atualizado pelo p2 junto com a release.
+**O JDK vem junto com o Eclipse.** Os pacotes EPP embarcam uma JRE **JustJ** dentro de `plugins/`, e o `eclipse.ini` aponta para ela via `-vm`. Não há instalação separada, e o JDK é atualizado pelo p2 junto com a release.
 
-Evidência das três instalações desta máquina:
+Confira no seu:
 
-| Instalação | JRE embarcada | `-vm` no `eclipse.ini` |
-|---|---|---|
-| Eclipse M1 171 | `org.eclipse.justj.openjdk.hotspot.jre.full.macosx.aarch64_21.0.11` | aponta para ela |
-| Eclipse M1 182 | `...aarch64_21.0.10` | aponta para ela |
-| Eclipse M1 200 | `...aarch64_21.0.12` | aponta para ela |
+```bash
+grep -A1 "^-vm$" "/Applications/SEU-ECLIPSE.app/Contents/Eclipse/eclipse.ini"
+```
+
+Saída típica:
 
 ```
 -vm
 ../Eclipse/plugins/org.eclipse.justj.openjdk.hotspot.jre.full.macosx.aarch64_21.0.12.v20260826-1216/jre/lib/libjli.dylib
 ```
 
-Os JDKs instalados em `/Library/Java/JavaVirtualMachines/` existem na máquina mas **não são usados** por estas instalações.
+Um JDK instalado em `/Library/Java/JavaVirtualMachines/` existe na máquina mas **não é usado** pelo Eclipse, a menos que você troque o `-vm` à mão.
 
 ### O que isso significa para testes
 
-A release do Eclipse **determina** o major do JDK. E todas as releases no escopo convergem para o mesmo:
+A release do Eclipse **determina** o major do JDK. Releases diferentes que embarcam a mesma JustJ 21 se comportam igual no que diz respeito ao Fix 1 — não é preciso validar cada uma separadamente. Esse eixo só volta a se mover quando uma release futura subir de major (Java 25, 26…), ou se você sobrescrever o `-vm`.
 
-| Release | JDK embarcado |
-|---|---|
-| Eclipse IDE 2026-03 | JustJ 21.x |
-| Eclipse IDE 2026-06 | JustJ 21.x |
-| Eclipse IDE 2026-09 | JustJ 21.x |
+---
 
-Ou seja: **não é necessário testar 2026-03, 2026-06 e 2026-09 separadamente** no que diz respeito ao Fix 1 — as três rodam Java 21 e se comportam igual. Só quando uma release futura subir para Java 25 é que o eixo muda e a validação precisa ser refeita.
+## A partir de qual Java cada correção é necessária
 
-A exceção é se você sobrescrever o `-vm` manualmente para um JDK do sistema. Aí o eixo JDK volta a ser independente da release.
+A pergunta natural é "a partir de qual Java isso deixa de ser incompatível?". A resposta é desconfortável: **não deixa**. Cada correção tem um Java em que passou a ser necessária, e nenhuma tem um Java em que deixa de ser. A direção da plataforma é sempre a de fechar mais.
+
+| Java | O que mudou na plataforma | Efeito no plugin Fluig |
+|---|---|---|
+| 8 | — | funciona sem patch: o JDK traz JAX-WS e o Nashorn |
+| 9–10 | JPMS chega, mas com `--illegal-access=permit` por padrão | avisos de reflexão; ainda funciona |
+| **11** | JEP 320 remove `java.xml.ws` e `java.xml.bind` do JDK | o `rt.jar` embarcado vira a única fonte de JAX-WS → **Fix 3 passa a importar** |
+| **15** | JEP 372 remove o Nashorn | `getEngineByName("js")` devolve `null` → **Fix 4 necessário** (quando o plugin não traz Rhino) |
+| **16** | JEP 396: *strong encapsulation* vira o padrão | `setAccessible` sobre `ClassLoader.defineClass` lança `InaccessibleObjectException` → **Fix 1 necessário** |
+| **17** | JEP 403 remove a opção `--illegal-access` | acabou a escapatória: `--add-opens` passa a ser a única saída |
+| 21 | JustJ das releases atuais | todas as condições acima valem simultaneamente |
+| 24 | JEP 498: acesso a memória via `sun.misc.Unsafe` passa a avisar | risco novo, ainda não medido aqui |
+| 26 | JEP 500: mutação de campo `final` por reflexão passa a avisar | **`--add-opens` deixa de bastar sozinho** para esse caso |
+
+### Sobre o Java 26
+
+No JDK 26, abrir o pacote continua necessário mas já **não é suficiente** para mutar um campo `final` por reflexão: é preciso também `--enable-final-field-mutation`. O padrão hoje é `warn`; o padrão futuro anunciado é `deny`, e aí `Field::set` lança `IllegalAccessException`.
+
+Isso **não** afeta o caso que o Fix 1 resolve hoje — o `com.sun.xml.ws.model.Injector` *invoca* métodos de `ClassLoader`, não muta campos finais. Mas é o primeiro sinal de que a escapatória vai ficando mais estreita, e ninguém verificou ainda se alguma biblioteca de 2018 embarcada no plugin muta campo final em outro caminho. Quando uma release do Eclipse embarcar JustJ 26, essa validação precisa ser refeita.
+
+O `--add-opens` em si **não tem remoção anunciada** — segue sendo o mecanismo sancionado.
+
+### As duas únicas saídas de verdade
+
+1. A TOTVS publicar um plugin que não dependa mais de reflexão profunda nem do Nashorn. Fora do nosso controle.
+2. Rodar o Eclipse num JDK antigo. Inviável: as releases no escopo trazem `-Dosgi.requiredJavaVersion=21` no `eclipse.ini` e nem iniciam abaixo disso.
+
+Ou seja: o script não é uma ponte temporária até o Java melhorar. É permanente enquanto o plugin for esse.
 
 ---
 
@@ -177,7 +301,7 @@ O script **detecta capacidade, não compara número de versão**. Isso é mais r
 
 A partir da 1.8.2.x a TOTVS passou a embarcar o Rhino no próprio plugin. Quando já existe motor JS, injetar Nashorn é desnecessário e ainda registra dois engines concorrentes via `ServiceLoader`.
 
-A detecção procura `META-INF/lib/*rhino*.jar` dentro do bundle:
+A detecção procura `META-INF/lib/*rhino*.jar` dentro do bundle. Comportamento observado em plugins reais:
 
 | Plugin | Motor JS embarcado | Decisão |
 |---|---|---|
@@ -186,6 +310,12 @@ A detecção procura `META-INF/lib/*rhino*.jar` dentro do bundle:
 | 2.0.0.9 | `fluig-rhino.jar`, `rhino-js-engine.jar` | **pula** — nada é baixado |
 
 Na prática, `nashorn-core` + 4 jars ASM (~5 MB) deixam de ser baixados nas versões 1.8.x e 2.0.x.
+
+Para ver o que o **seu** plugin embarca:
+
+```bash
+unzip -l "/Applications/SEU-ECLIPSE.app/Contents/Eclipse/plugins/com.totvs.tds.ecm.designer.eclipse_"*.jar | grep "META-INF/lib/"
+```
 
 ---
 
@@ -203,21 +333,21 @@ Na prática, `nashorn-core` + 4 jars ASM (~5 MB) deixam de ser baixados nas vers
 
 ### Evidência
 
-Três instalações desta máquina são **todas Eclipse 4.39.0**, com plugins diferentes:
+Três instalações do **mesmo Eclipse 4.39.0**, com a mesma JustJ 21, variando só a versão do plugin:
 
-| Instalação | Eclipse | Plugin Fluig |
-|---|---|---|
-| Eclipse M1 171 | 4.39.0 | 1.7.1.3 |
-| Eclipse M1 182 | 4.39.0 | 1.8.2.5 |
-| Eclipse M1 200 | 4.39.0 | 2.0.0.9 |
+| Instalação | Eclipse | Plugin Fluig | Fix 3 | Fix 4 |
+|---|---|---|---|---|
+| A | 4.39.0 | 1.7.1.3 | necessário | **necessário** |
+| B | 4.39.0 | 1.8.2.5 | necessário | pulado (Rhino) |
+| C | 4.39.0 | 2.0.0.9 | já aplicado | pulado (Rhino) |
 
-Mesmo Eclipse, mesma JustJ 21, e mesmo assim **exigem patches diferentes** — porque o que varia é o plugin.
+Mesmo Eclipse, mesmo JDK, patches diferentes — porque o que varia é o plugin.
 
 ### Quanto testar
 
 Combinações relevantes: `(major do JDK) × (versão do plugin Fluig)`.
 
-Como todas as releases no escopo embarcam JustJ 21, o eixo JDK está **fixo hoje**. Na prática você só precisa validar por **versão de plugin**. Uma release nova do Eclipse que continue em Java 21 e use um plugin já homologado é risco baixo: teste de fumaça basta.
+Enquanto todas as releases em uso embarcarem JustJ 21, o eixo JDK fica **fixo**, e na prática só é preciso validar por **versão de plugin**. Uma release nova do Eclipse que continue em Java 21 com um plugin já homologado é risco baixo: teste de fumaça basta.
 
 ---
 
@@ -231,7 +361,7 @@ Legenda: ✅ validado · ⏭️ pulado por detecção (comportamento correto) ·
 | 4.39.0 | 21.0.10 | 1.8.2.5 | ✅ | ✅ | ✅ | ⏭️ | ⬜ |
 | 4.39.0 | 21.0.11 | 1.7.1.3 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
-Atualize a cada combinação testada. Esta tabela é o contrato do que não pode regredir.
+Esta tabela é o contrato do que não pode regredir. **Rodou o script numa combinação que não está aqui? [Abra um PR com a sua linha](#contribuindo)** — é a contribuição mais útil que este projeto pode receber, e não exige escrever código.
 
 ---
 
@@ -254,7 +384,7 @@ Problema do SWT no macOS ARM, fora do escopo deste script. O Fix 2 silencia o *a
 
 ### 2. Atualização do plugin desfaz os Fix 3 e 4
 
-Atualizar o Fluig Studio pelo p2 **substitui os jars** e reverte os patches. Depois de toda atualização, rode o script de novo. A atualização 2.0.0.8 → 2.0.0.9 reverteu o `rt.jar` para 2.3.1.
+Atualizar o Fluig Studio pelo p2 **substitui os jars** e reverte os patches. **Depois de toda atualização do plugin, rode o script de novo.** Caso observado: a atualização 2.0.0.8 → 2.0.0.9 reverteu o `rt.jar` para 2.3.1.
 
 ### 3. Nashorn vs. Rhino não verificado em runtime
 
@@ -264,39 +394,128 @@ A detecção do Fix 4 assume que, se o plugin embarca Rhino, ele resolve o `Scri
 
 ## Histórico de correções no próprio script
 
-| Data | Correção |
-|---|---|
-| 2026-11-17 | `java.base/java.lang` adicionado ao Fix 1 — sem ele a exportação de workflow falha |
-| 2026-11-17 | Fix 4 passa a detectar motor JS embarcado e pular quando desnecessário |
-| 2026-11-17 | Fix 4 passa a desdobrar o `MANIFEST.MF` antes de procurar a âncora e a redobrar em 72 bytes |
+| Correção |
+|---|
+| `java.base/java.lang` adicionado ao Fix 1 — sem ele a exportação de workflow falha |
+| Fix 4 passa a detectar motor JS embarcado e pular quando desnecessário |
+| Fix 4 passa a desdobrar o `MANIFEST.MF` antes de procurar a âncora, e a redobrar em 72 bytes |
+| Fix 3: detecção do `rt.jar` corrigida — lia por pipe e falhava sempre, em silêncio |
+| `eclipse.ini.bak` deixa de ser sobrescrito a cada execução |
+| Fix 2 passa a remover ocorrências repetidas da flag SWT |
+| Falha de um Fix deixa de abortar os demais; o código de saída distingue 0/1/2 |
+| Modo não interativo, `--offline`, `--cache-dir`, `--search-dirs` e `--report` |
 
-O desdobramento era necessário porque a spec JAR limita linhas do manifesto a 72 bytes. Na 2.0.0.9 a âncora `META-INF/lib/jaxws-api.jar` caía exatamente sobre uma dobra:
+Dois desses merecem explicação, porque são armadilhas fáceis de repetir.
+
+**A dobra do manifesto.** A spec JAR limita linhas do `MANIFEST.MF` a 72 bytes, continuando na linha seguinte com um espaço à esquerda. Em bundles reais a âncora `META-INF/lib/jaxws-api.jar` cai exatamente sobre uma dobra:
 
 ```
-53: TA-INF/lib/guava.jar,META-INF/lib/wcm-common.jar,META-INF/lib/jaxws-api
-54: .jar,META-INF/lib/foundation-script-runner.jar
+TA-INF/lib/guava.jar,META-INF/lib/wcm-common.jar,META-INF/lib/jaxws-api
+ .jar,META-INF/lib/foundation-script-runner.jar
 ```
 
-A busca pela string contígua falhava e o Fix 4 abortava em silêncio.
+A busca pela string contígua falhava e o Fix 4 abortava em silêncio. Hoje o manifesto é desdobrado antes da busca e redobrado depois.
+
+**A leitura por pipe.** A versão do `rt.jar` era lida assim:
+
+```bash
+unzip -p "$PLUGIN_JAR" META-INF/lib/rt.jar | unzip -p /dev/stdin META-INF/MANIFEST.MF
+```
+
+O `unzip` precisa de acesso aleatório ao arquivo e não lê de um pipe. A detecção devolvia string vazia **sempre**, então o script nunca reconhecia um `rt.jar` já atualizado: rebaixava o download e reaplicava o patch a cada execução. Hoje o `rt.jar` é extraído para um arquivo temporário antes de ser lido.
+
+---
+
+## Modo automatizado
+
+```bash
+./fluig-eclipse-fix.command --non-interactive \
+    --eclipse "/Applications/Eclipse.app" \
+    --report /tmp/fluig-fix.txt
+```
+
+| Flag | Variável de ambiente | Efeito |
+|---|---|---|
+| `--eclipse <nome\|caminho>` | `FLUIG_FIX_ECLIPSE` | Eclipse alvo, sem perguntar |
+| `--non-interactive`, `-y` | `FLUIG_FIX_NON_INTERACTIVE` | Não pergunta nada e não espera Enter |
+| `--offline` | `FLUIG_FIX_OFFLINE` | Não acessa a rede; só o cache local |
+| `--cache-dir <dir>` | `FLUIG_FIX_CACHE_DIR` | Onde guardar/procurar os artefatos |
+| `--search-dirs <a:b>` | `FLUIG_FIX_SEARCH_DIRS` | Onde procurar Eclipse |
+| `--report <arquivo>` | `FLUIG_FIX_REPORT` | Grava `chave=valor` do que foi aplicado |
+
+Saída: `0` tudo certo · `1` alguma correção falhou · `2` erro de uso ou pré-requisito ausente.
+
+O `--cache-dir` ajuda quem configura várias máquinas: baixe uma vez, compartilhe a pasta e rode as demais com `--offline`.
 
 ---
 
 ## Testes
 
-Planejado, ainda não implementado. O objetivo é garantir que uma correção nova não quebre combinação já homologada, rodando contra **fixtures sintéticas** — árvores `<nome>.app/Contents/Eclipse/` em diretório temporário — sem tocar instalações reais.
+Suíte automatizada em `tests/`. **Não precisa de Eclipse instalado e não acessa a rede.**
 
-Casos previstos:
+```bash
+./tests/run-tests.sh            # 24 casos, 121 asserções
+./tests/run-tests.sh fix4       # só os casos cujo nome contém "fix4"
+KEEP_FIXTURES=1 ./tests/run-tests.sh   # preserva o sandbox para inspeção
+```
 
-- `eclipse.ini` sem flags → as 5 são inseridas após `--add-modules`
-- `eclipse.ini` completo → idempotente, sem duplicatas
-- `eclipse.ini` com duplicatas → deduplicado
-- jar com `rt.jar` 2.3.1 → vira 2.3.5, zip válido, demais entradas intactas
-- jar com `rt.jar` 2.3.5 → pulado, nada baixado
-- jar com Rhino embarcado → Fix 4 pulado, nada baixado
-- manifesto com âncora dobrada → Fix 4 encontra e aplica, linhas ≤ 72 bytes
-- jar sem âncora → aborta sem corromper o jar
+Cada caso monta, num diretório temporário, uma instalação de Eclipse sintética — `<nome>.app/Contents/Eclipse/` com `eclipse.ini`, jars de plugin e cache OSGi — e roda o script real contra ela com `--offline` sobre um "Maven Central" falso. As asserções leem o arquivo de `--report`, não o texto dos logs, para não quebrarem a cada mudança de redação.
 
-Para a suíte invocar o script real é preciso um gancho de override do caminho da instalação (hoje `SEARCH_DIRS` é fixo em `/Applications`) e um modo não interativo.
+O que está coberto:
+
+| Grupo | Casos |
+|---|---|
+| Fix 1 | instalação limpa · idempotência · sem `--add-modules` · colapso de duplicatas |
+| Fix 2 | `true`→`false` · flag ausente · já correta |
+| Fix 3 | patch 2.3.1→2.3.5 com backup e conteúdo preservado · detecção de "já atualizado" |
+| Fix 4 | aplica sem motor JS · **âncora dobrada** · pula com Rhino · pula com Nashorn · âncora ausente · bundle ausente |
+| Fix 5 | cache removido · 2ª execução inalterada |
+| Cenários | plugin recente (nada a fazer) · plugin antigo (Fix 3 + Fix 4) |
+| Robustez | offline sem cache não corrompe · caminho com espaços e acentos · seleção por nome · Eclipse inexistente · plugin ausente · `--help`/`--version` |
+
+### Validação por mutação
+
+Um teste que passa contra um script quebrado não serve. A suíte foi verificada revertendo cada correção e conferindo quais casos reprovam:
+
+| Mutação | Casos que falharam |
+|---|---|
+| remover `--add-opens=java.base/java.lang` | 5 |
+| procurar a âncora no manifesto cru | 2 |
+| voltar a ler o `rt.jar` por pipe | 3 |
+| remover a detecção de Rhino | 2 |
+| sobrescrever o `eclipse.ini.bak` sempre | 1 |
+
+```bash
+FLUIG_FIX_SCRIPT=/caminho/mutante.command ./tests/run-tests.sh
+```
+
+**Ao adicionar um caso novo, faça o mesmo exercício.** Detalhes em [`tests/README.md`](tests/README.md).
+
+### O que a suíte não cobre
+
+Tudo que exige Eclipse de verdade rodando: se o Equinox carrega o `Bundle-ClassPath` remendado, qual `ScriptEngine` o plugin resolve, se a exportação de workflow funciona ponta a ponta, e o crash nativo SWT/Cocoa. Isso continua na [matriz de homologação](#matriz-de-homologação), preenchida à mão.
+
+---
+
+## Integração contínua
+
+`.github/workflows/ci.yml` roda em todo *pull request* e em todo push na `main`:
+
+| Job | Onde | Bloqueante |
+|---|---|---|
+| **lint** | ubuntu | sim — `bash -n`, `py_compile`, bit de execução, ShellCheck (severidade `error`) |
+| **test** | **macos-latest** e ubuntu-latest | sim — a suíte completa nos dois |
+| **rede** | ubuntu | não — confere se as URLs do Maven Central ainda respondem |
+
+O `macos-latest` é a plataforma-alvo real (Apple Silicon); o `ubuntu-latest` roda junto como canário rápido. Como a suíte é offline e dispensa Eclipse, as duas execuções são equivalentes — a diferença que importa é BSD vs. GNU nas ferramentas de linha de comando.
+
+Para exigir o CI antes de um merge (precisa de permissão de admin no repositório):
+
+```bash
+gh api -X PUT repos/OWNER/REPO/branches/main/protection/required_status_checks \
+  -f strict=true -f 'contexts[]=Lint (sintaxe + shellcheck)' \
+  -f 'contexts[]=Testes (macos-latest)' -f 'contexts[]=Testes (ubuntu-latest)'
+```
 
 ---
 
@@ -308,14 +527,39 @@ Para a suíte invocar o script real é preciso um gancho de override do caminho 
 | `com.totvs.tds.ecm.designer.model_*.jar` | `<mesmo nome>.jar.bak` |
 | `com.totvs.tds.ecm.designer.eclipse_*.jar` | `<mesmo nome>.jar.bak.nashorn` |
 
-Backups existentes **não são sobrescritos** — o primeiro é sempre preservado como estado original.
+Backups existentes **não são sobrescritos** — o primeiro é sempre preservado como estado original, mesmo rodando o script várias vezes.
 
-Para reverter, restaure os `.bak` e apague `configuration/org.eclipse.osgi`.
+Para reverter tudo, com o Eclipse fechado:
+
+```bash
+cd "/Applications/SEU-ECLIPSE.app/Contents/Eclipse"
+mv eclipse.ini.bak eclipse.ini
+for f in plugins/*.jar.bak;         do mv "$f" "${f%.bak}"; done
+for f in plugins/*.jar.bak.nashorn; do mv "$f" "${f%.bak.nashorn}"; done
+rm -rf configuration/org.eclipse.osgi
+```
 
 ---
 
-## Requisitos
+## Contribuindo
 
-- macOS Apple Silicon
-- `curl`, `zip`, `unzip`, `python3`
-- Acesso ao Maven Central — somente quando algum download for de fato necessário
+A contribuição mais valiosa **não exige código**: rodou o script numa combinação de Eclipse + plugin que não está na [matriz de homologação](#matriz-de-homologação)? Abra um PR acrescentando a linha, com o que funcionou e o que não funcionou.
+
+Para mudanças no script:
+
+1. `./tests/run-tests.sh` precisa passar.
+2. Mudou o comportamento de um Fix? **Inclua um caso de teste novo.**
+3. Valide o caso por mutação: quebre de propósito o que ele deveria proteger e confirme que ele reprova.
+4. Diga em qual Eclipse + plugin você testou de verdade.
+
+O `.github/pull_request_template.md` já traz esse checklist, e o CI roda sozinho no PR.
+
+**Relatando um problema:** inclua a versão do Eclipse (Help → About), a versão do plugin Fluig (Help → About → Installation Details), a saída completa do script e, se houver, o `.log` de `<Eclipse>.app/Contents/Eclipse/configuration/`. Confira antes que não há credencial, hostname interno ou dado de cliente nos trechos colados.
+
+---
+
+## Licença
+
+[MIT](LICENSE).
+
+Não afiliado à TOTVS nem à Eclipse Foundation. "Fluig" e "TOTVS" são marcas de seus respectivos titulares. Este projeto apenas ajusta uma instalação local de software de terceiros e não redistribui nenhum componente da TOTVS.

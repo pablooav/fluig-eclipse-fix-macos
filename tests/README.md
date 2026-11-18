@@ -101,9 +101,9 @@ teste poderia passar sem exercitar nada.
 | 15 | `fix4_sem_bundle_eclipse` | ausência do bundle não é erro |
 | 16 | `fix5_limpa_cache_osgi` | cache removido; 2ª vez reporta `inalterado` |
 | 17 | `offline_sem_cache_nao_corrompe` | download indisponível não corrompe o plugin |
-| 18 | `cenario_2009_completo` | perfil do Eclipse M1 200: nada a baixar, nada a tocar |
+| 18 | `cenario_2009_completo` | plugin recente (2.0.x): nada a baixar, nada a tocar |
 | 19 | `cenario_1713_completo` | perfil do plugin antigo: Fix 3 + Fix 4 juntos |
-| 20 | `caminho_com_espacos_e_acentos` | `Eclipse M1 200 (cópia) — teste.app` |
+| 20 | `caminho_com_espacos_e_acentos` | `Eclipse IDE 2026-03 (cópia) — teste.app` |
 | 21 | `selecao_por_nome` | resolve o Eclipse pelo nome, como no uso interativo |
 | 22 | `eclipse_inexistente` | saída 2 com mensagem clara |
 | 23 | `plugin_fluig_ausente` | saída 2 dizendo qual plugin falta |
