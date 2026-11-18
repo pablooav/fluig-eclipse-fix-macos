@@ -1,0 +1,4 @@
+# Todo PR pede revisão do mantenedor automaticamente.
+# Combinado com a regra "Require review from Code Owners" na ruleset da main,
+# isto garante que nada entra sem a sua análise.
+*       @pablooav

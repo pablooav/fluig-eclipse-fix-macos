@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Mantém as actions do CI (actions/checkout etc.) em versões suportadas.
+  # O projeto não tem dependências de runtime: o script só usa ferramentas
+  # que já vêm com o macOS.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependências

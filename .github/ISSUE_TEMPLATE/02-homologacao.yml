@@ -1,0 +1,61 @@
+name: Reportar uma combinação homologada
+description: Funcionou numa combinação de Eclipse + plugin que não está na matriz
+labels: ["homologação"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Esta é a contribuição mais útil do projeto e não exige escrever código.
+        Se preferir, abra direto um PR acrescentando a linha na
+        **Matriz de homologação** do README.
+
+  - type: input
+    id: eclipse
+    attributes:
+      label: Versão do Eclipse
+      placeholder: "4.39.0"
+    validations:
+      required: true
+
+  - type: input
+    id: jdk
+    attributes:
+      label: JRE embarcada (JustJ)
+      placeholder: "21.0.12"
+    validations:
+      required: true
+
+  - type: input
+    id: plugin
+    attributes:
+      label: Versão do plugin Fluig
+      placeholder: "2.0.0.9"
+    validations:
+      required: true
+
+  - type: textarea
+    id: resumo
+    attributes:
+      label: Resumo final do script
+      description: As cinco linhas com ✓ / – / ✗ e os status entre colchetes.
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: validado
+    attributes:
+      label: O que você conseguiu fazer depois
+      options:
+        - label: O Eclipse abriu normalmente
+        - label: Exportei um processo / workflow
+        - label: Subi um formulário
+        - label: A árvore de servidores abriu sem erro de SWT
+
+  - type: textarea
+    id: observacoes
+    attributes:
+      label: Observações
+      description: Algo pulado que você esperava aplicado? Algum efeito colateral?
+    validations:
+      required: false

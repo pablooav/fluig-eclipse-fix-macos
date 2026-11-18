@@ -1,0 +1,74 @@
+name: Problema ao rodar o script
+description: Algo falhou, ou funcionou mas o Eclipse continua quebrado
+labels: ["problema"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de colar qualquer saída, **confira que não há credencial, hostname
+        interno ou nome de cliente** nos trechos.
+
+  - type: input
+    id: eclipse
+    attributes:
+      label: Versão do Eclipse
+      description: Help → About Eclipse IDE (ex.— 4.39.0, pacote Enterprise Java)
+      placeholder: "4.39.0 — Eclipse IDE for Enterprise Java and Web Developers"
+    validations:
+      required: true
+
+  - type: input
+    id: plugin
+    attributes:
+      label: Versão do plugin Fluig
+      description: Help → About → Installation Details
+      placeholder: "2.0.0.9"
+    validations:
+      required: true
+
+  - type: input
+    id: jdk
+    attributes:
+      label: JRE em uso
+      description: "Saída de: grep -A1 '^-vm$' <Eclipse>.app/Contents/Eclipse/eclipse.ini"
+      placeholder: "JustJ 21.0.12"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mac
+    attributes:
+      label: Arquitetura
+      options:
+        - Apple Silicon (M1/M2/M3/M4)
+        - Intel
+    validations:
+      required: true
+
+  - type: textarea
+    id: esperado
+    attributes:
+      label: O que você esperava e o que aconteceu
+      placeholder: |
+        Esperava exportar o processo. O script rodou até o fim sem erro, mas a
+        exportação continua falhando com ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: saida
+    attributes:
+      label: Saída completa do script
+      description: Cole tudo, do cabeçalho ao resumo final.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log do Eclipse (se houver)
+      description: "O .log mais recente em <Eclipse>.app/Contents/Eclipse/configuration/"
+      render: text
+    validations:
+      required: false

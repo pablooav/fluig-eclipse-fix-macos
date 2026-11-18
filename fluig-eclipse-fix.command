@@ -25,7 +25,7 @@
 #   FLUIG_FIX_CACHE_DIR, FLUIG_FIX_REPORT, FLUIG_FIX_SEARCH_DIRS
 # =============================================================================
 
-FIX_VERSION="1.1.0"
+FIX_VERSION="1.0.0"
 
 # Cores
 GREEN='\033[0;32m'

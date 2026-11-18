@@ -48,6 +48,8 @@ Este repositório traz um script que aplica as correções necessárias e, mais 
 - [Integração contínua](#integração-contínua)
 - [Backups e reversão](#backups-e-reversão)
 - [Contribuindo](#contribuindo)
+- [Segurança](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 - [Licença](#licença)
 
 ---
@@ -549,6 +551,8 @@ Para mudanças no script:
 4. Diga em qual Eclipse + plugin você testou de verdade.
 
 O `.github/pull_request_template.md` já traz esse checklist, e o CI roda sozinho no PR.
+
+Há dois modelos de issue prontos: **Problema ao rodar o script** e **Reportar uma combinação homologada**. Falha de segurança não vai em issue pública — veja [SECURITY.md](SECURITY.md).
 
 **Relatando um problema:** inclua a versão do Eclipse (Help → About), a versão do plugin Fluig (Help → About → Installation Details), a saída completa do script e, se houver, o `.log` de `<Eclipse>.app/Contents/Eclipse/configuration/`. Confira antes que não há credencial, hostname interno ou dado de cliente nos trechos colados.
 
