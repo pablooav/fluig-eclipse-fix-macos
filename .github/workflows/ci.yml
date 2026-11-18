@@ -19,7 +19,7 @@ jobs:
     name: Lint (sintaxe + shellcheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Sintaxe bash
         run: |
@@ -55,7 +55,7 @@ jobs:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Garante zip/unzip
         if: runner.os == 'Linux'
@@ -84,7 +84,7 @@ jobs:
     # um PR que não mexeu em nada disso.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Confere que as URLs baixadas pelo script ainda existem
         run: |
           status=0
