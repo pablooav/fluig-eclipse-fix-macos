@@ -1,6 +1,12 @@
 # fluig-eclipse-fix-macos
 
-[![CI](https://github.com/pablooav/fluig-eclipse-fix-macos/actions/workflows/ci.yml/badge.svg)](https://github.com/pablooav/fluig-eclipse-fix-macos/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/tag/pablooav/fluig-eclipse-fix-macos?label=release&color=f97316&sort=semver)](https://github.com/pablooav/fluig-eclipse-fix-macos/tags)
+[![ci](https://img.shields.io/github/actions/workflow/status/pablooav/fluig-eclipse-fix-macos/ci.yml?branch=main&label=ci)](https://github.com/pablooav/fluig-eclipse-fix-macos/actions/workflows/ci.yml)
+[![plataforma](https://img.shields.io/badge/plataforma-macOS%20Apple%20Silicon-1f2328?logo=apple&logoColor=white)](#escopo-e-requisitos)
+[![eclipse](https://img.shields.io/badge/Eclipse-Java%2017%2B-2c2255?logo=eclipseide&logoColor=white)](#escopo-e-requisitos)
+[![fluig](https://img.shields.io/badge/Fluig%20Studio-1.7%20%C2%B7%201.8%20%C2%B7%202.0-0b5fff)](#matriz-de-homologação)
+[![testes](https://img.shields.io/badge/testes-24%20casos%20%C2%B7%20121%20asser%C3%A7%C3%B5es-3fb950)](#testes)
+[![licença](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)](LICENSE)
 
 Faz o **plugin TOTVS Fluig Studio** funcionar no Eclipse em **macOS Apple Silicon** com Java 17 ou superior.
 
@@ -81,10 +87,7 @@ Qualquer release que rode em Java 17+ serve. Na prática, todas de 2024-09 em di
 
 Com o Eclipse aberto: **Help → Install New Software… → Add…**
 
-Duas rotas:
-
-- **Update site.** Pegue o endereço atual na documentação oficial da TOTVS ([IDE Installation, no TDN](https://tdn.totvs.com/x/dlCtK)). Historicamente foi `http://update.fluig.com`, mas o TDN indica que o endereço mudou — confirme lá antes de usar. **Marque “Contact all update sites during install”**, senão a instalação falha por dependência não resolvida.
-- **Arquivo.** Baixe o `fluig-eclipse-plugin.zip` da documentação da TOTVS e use **Add… → Archive…**.
+Faça a instalação normalmente conforme a documentação da totvs ([IDE Installation, no TDN](https://tdn.totvs.com/pages/releaseview.action?pageId=73078179))
 
 Reinicie o Eclipse. A perspectiva fica em **Window → Open Perspective → Other… → Fluig**.
 
@@ -106,7 +109,19 @@ Se preferir baixar o ZIP pelo botão **Code** do GitHub, o macOS marca o arquivo
 chmod +x fluig-eclipse-fix.command && xattr -d com.apple.quarantine fluig-eclipse-fix.command
 ```
 
-O script lista os Eclipse encontrados, pede o nome e aplica só o que for necessário. Leia a saída: ela diz, item por item, o que foi aplicado (`✓`), o que já estava certo (`–`) e o que falhou (`✗`).
+O script lista os Eclipse encontrados e espera o nome. **É o único ponto em que você interage:**
+
+![Listagem dos Eclipse encontrados e prompt de seleção](docs/print-selecao.svg)
+
+Digite o nome **exatamente como aparece na lista**, sem o `.app`. Daí ele segue sozinho, aplicando só o que for necessário.
+
+No fim, o resumo diz item por item o que foi aplicado agora (`✓`), o que já estava certo (`–`) e o que falhou (`✗`):
+
+![Resumo final da execução, com as cinco correções e os backups criados](docs/print-sucesso.svg)
+
+Neste exemplo o Fix 2 não tinha o que fazer e o Fix 4 foi pulado porque o plugin 2.0.0.9 já embarca motor JS próprio — comportamento correto, não erro. O código de saída é `0` quando nada falhou.
+
+> As duas imagens são saída real do script, geradas por `docs/gerar-prints.sh` contra instalações de teste. Se a saída mudar, rode o gerador de novo em vez de editar os SVGs à mão.
 
 ### 4. Validar
 
@@ -367,28 +382,9 @@ Esta tabela é o contrato do que não pode regredir. **Rodou o script numa combi
 
 ## Problemas conhecidos
 
-### 1. Crash nativo SWT/Cocoa (não endereçado)
-
-Em uso prolongado o Eclipse pode cair com:
-
-```
-SIGSEGV em objc_release
-  libobjc.A.dylib          objc_release
-  Foundation               -[NSAutoreleasePool release]
-  libswt-pi-cocoa          OS.objc_msgSend
-  org.eclipse.swt.widgets.Display.removePool()
-  org.eclipse.swt.widgets.Display.readAndDispatch()
-```
-
-Problema do SWT no macOS ARM, fora do escopo deste script. O Fix 2 silencia o *aviso* de recursos não liberados, mas não a liberação dupla no lado nativo.
-
-### 2. Atualização do plugin desfaz os Fix 3 e 4
+### 1. Atualização do plugin desfaz os Fix 3 e 4
 
 Atualizar o Fluig Studio pelo p2 **substitui os jars** e reverte os patches. **Depois de toda atualização do plugin, rode o script de novo.** Caso observado: a atualização 2.0.0.8 → 2.0.0.9 reverteu o `rt.jar` para 2.3.1.
-
-### 3. Nashorn vs. Rhino não verificado em runtime
-
-A detecção do Fix 4 assume que, se o plugin embarca Rhino, ele resolve o `ScriptEngine` por ele. Isso é inferido do conteúdo do bundle, **não observado em execução**. Se aparecer falha de script em 1.8.x ou 2.0.x, vale confirmar qual engine é resolvido antes de concluir que o Fix 4 era necessário.
 
 ---
 

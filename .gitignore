@@ -13,3 +13,6 @@ tests/.cache/
 # Python
 __pycache__/
 *.pyc
+
+# Preview temporário dos prints
+docs/_preview.html
