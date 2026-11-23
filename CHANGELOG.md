@@ -3,6 +3,44 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/);
 versionamento conforme [SemVer](https://semver.org/lang/pt-BR/).
 
+## [1.0.1] — 2026-11-23
+
+### Corrigido
+
+- **O Fix 4 corrompia o `MANIFEST.MF` e inutilizava o bundle.** Ao redobrar o
+  manifesto, as quebras CRLF não eram normalizadas antes do fatiamento: cada
+  linha ficava com um `\r` sobrando e o `join` com `\r\n` produzia `\r\r\n`.
+  Pela spec do JAR, esse `\r` extra vale como uma **linha em branco** — e linha
+  em branco encerra a seção principal do manifesto. O Equinox parava de enxergar
+  o `Bundle-SymbolicName`, o bundle `com.totvs.tds.ecm.designer.eclipse` não
+  resolvia mais, e com ele caíam os ícones, as views e o editor gráfico do
+  Graphiti — o diagrama deixava de abrir e o processo era exibido como XML cru.
+
+  Atingia **apenas instalações em que o Fix 4 chega a ser aplicado**, ou seja,
+  plugin sem motor JS embarcado (1.7.x). Nas versões 1.8.x e 2.0.x o Fix 4 é
+  pulado e a 1.0.0 não causava dano.
+
+  **Se você rodou a 1.0.0 num plugin 1.7.x**, restaure o backup e rode de novo:
+
+  ```bash
+  cd "/Applications/<SEU-ECLIPSE>.app/Contents/Eclipse"
+  cp plugins/com.totvs.tds.ecm.designer.eclipse_*.jar.bak.nashorn \
+     plugins/com.totvs.tds.ecm.designer.eclipse_1.7.1.3.jar
+  rm -rf configuration/org.eclipse.osgi
+  ```
+
+### Testes
+
+- A suíte lia o manifesto em modo texto, onde o Python normaliza `\r\r\n` em
+  silêncio — foi esse ponto cego que deixou o bug passar. Agora há um validador
+  que lê os **bytes crus** e aplica as regras da spec: fim de linha, limite de
+  72 bytes por linha física, e presença de `Manifest-Version`,
+  `Bundle-SymbolicName` e `Bundle-ClassPath` dentro da seção principal.
+- Caso novo `fix4_preserva_fim_de_linha`. Contra o script da 1.0.0 ele reprova
+  com `header fora da secao principal: Bundle-SymbolicName` — exatamente o que
+  o Equinox relatou em produção.
+- 25 casos e 128 asserções.
+
 ## [1.0.0] — 2026-11-17
 
 Primeira versão pública.
@@ -61,4 +99,5 @@ a detecção do `rt.jar` por pipe, que falhava sempre em silêncio, e a busca da
 [Histórico de correções no próprio script](README.md#histórico-de-correções-no-próprio-script)
 do README.
 
+[1.0.1]: https://github.com/pablooav/fluig-eclipse-fix-macos/releases/tag/v1.0.1
 [1.0.0]: https://github.com/pablooav/fluig-eclipse-fix-macos/releases/tag/v1.0.0

@@ -5,7 +5,7 @@
 [![plataforma](https://img.shields.io/badge/plataforma-macOS%20Apple%20Silicon-1f2328?logo=apple&logoColor=white)](#escopo-e-requisitos)
 [![eclipse](https://img.shields.io/badge/Eclipse-Java%2017%2B-2c2255?logo=eclipseide&logoColor=white)](#escopo-e-requisitos)
 [![fluig](https://img.shields.io/badge/Fluig%20Studio-1.7%20%C2%B7%201.8%20%C2%B7%202.0-0b5fff)](#matriz-de-homologação)
-[![testes](https://img.shields.io/badge/testes-24%20casos%20%C2%B7%20121%20asser%C3%A7%C3%B5es-3fb950)](#testes)
+[![testes](https://img.shields.io/badge/testes-25%20casos%20%C2%B7%20128%20asser%C3%A7%C3%B5es-3fb950)](#testes)
 [![licença](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)](LICENSE)
 
 Faz o **plugin TOTVS Fluig Studio** funcionar no Eclipse em **macOS Apple Silicon** com Java 17 ou superior.
@@ -378,6 +378,8 @@ Legenda: ✅ validado · ⏭️ pulado por detecção (comportamento correto) ·
 | 4.39.0 | 21.0.10 | 1.8.2.5 | ✅ | ✅ | ✅ | ⏭️ | ⬜ |
 | 4.39.0 | 21.0.11 | 1.7.1.3 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
+> **Atenção, plugin 1.7.x:** a versão **1.0.0 do script corrompia o manifesto** ao aplicar o Fix 4, e o bundle `designer.eclipse` deixava de resolver — sintoma visível: o diagrama não abre e o processo aparece como XML. Corrigido na 1.0.1. Se você rodou a 1.0.0 num 1.7.x, veja a receita de restauração no [CHANGELOG](CHANGELOG.md#101--2026-11-23).
+
 Esta tabela é o contrato do que não pode regredir. **Rodou o script numa combinação que não está aqui? [Abra um PR com a sua linha](#contribuindo)** — é a contribuição mais útil que este projeto pode receber, e não exige escrever código.
 
 ---
@@ -402,6 +404,7 @@ Atualizar o Fluig Studio pelo p2 **substitui os jars** e reverte os patches. **D
 | Fix 2 passa a remover ocorrências repetidas da flag SWT |
 | Falha de um Fix deixa de abortar os demais; o código de saída distingue 0/1/2 |
 | Modo não interativo, `--offline`, `--cache-dir`, `--search-dirs` e `--report` |
+| **1.0.1** — Fix 4 passa a normalizar CRLF antes de redobrar: o `\r` sobrando virava `\r\r\n` e inutilizava o bundle |
 
 Dois desses merecem explicação, porque são armadilhas fáceis de repetir.
 
@@ -452,7 +455,7 @@ O `--cache-dir` ajuda quem configura várias máquinas: baixe uma vez, compartil
 Suíte automatizada em `tests/`. **Não precisa de Eclipse instalado e não acessa a rede.**
 
 ```bash
-./tests/run-tests.sh            # 24 casos, 121 asserções
+./tests/run-tests.sh            # 25 casos, 128 asserções
 ./tests/run-tests.sh fix4       # só os casos cujo nome contém "fix4"
 KEEP_FIXTURES=1 ./tests/run-tests.sh   # preserva o sandbox para inspeção
 ```
@@ -466,7 +469,7 @@ O que está coberto:
 | Fix 1 | instalação limpa · idempotência · sem `--add-modules` · colapso de duplicatas |
 | Fix 2 | `true`→`false` · flag ausente · já correta |
 | Fix 3 | patch 2.3.1→2.3.5 com backup e conteúdo preservado · detecção de "já atualizado" |
-| Fix 4 | aplica sem motor JS · **âncora dobrada** · pula com Rhino · pula com Nashorn · âncora ausente · bundle ausente |
+| Fix 4 | aplica sem motor JS · **âncora dobrada** · **preserva CRLF do manifesto** · pula com Rhino · pula com Nashorn · âncora ausente · bundle ausente |
 | Fix 5 | cache removido · 2ª execução inalterada |
 | Cenários | plugin recente (nada a fazer) · plugin antigo (Fix 3 + Fix 4) |
 | Robustez | offline sem cache não corrompe · caminho com espaços e acentos · seleção por nome · Eclipse inexistente · plugin ausente · `--help`/`--version` |
@@ -482,6 +485,7 @@ Um teste que passa contra um script quebrado não serve. A suíte foi verificada
 | voltar a ler o `rt.jar` por pipe | 3 |
 | remover a detecção de Rhino | 2 |
 | sobrescrever o `eclipse.ini.bak` sempre | 1 |
+| não normalizar CRLF antes de redobrar o manifesto | 3 |
 
 ```bash
 FLUIG_FIX_SCRIPT=/caminho/mutante.command ./tests/run-tests.sh
