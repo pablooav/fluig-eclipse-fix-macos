@@ -41,6 +41,25 @@ versionamento conforme [SemVer](https://semver.org/lang/pt-BR/).
   o Equinox relatou em produção.
 - 25 casos e 128 asserções.
 
+### Validado
+
+- **Primeira validação em runtime do Fix 4**, em Eclipse 4.39.0 / JustJ 21.0.11
+  / plugin 1.7.1.3. A exportação de workflow acusava
+  `Ocorreu erro de sintaxe no(s) seguinte(s) evento(s)` listando **todos** os
+  eventos, inclusive os corretos. A causa está no bytecode do plugin:
+  `AbstractExportTotvs.checkEventsErros()` faz
+  `new ScriptEngineManager().getEngineByName("js")`, recebe `null` em Java 21
+  (Nashorn removido na JEP 372), e o `catch (Exception)` do laço converte o
+  `NullPointerException` em "erro de sintaxe" para cada evento. Depois do
+  Fix 4, `getEngineByName("js")` devolve `NashornScriptEngine` e a exportação
+  conclui.
+- As versões 1.8.2.5 e 2.0.0.9 não dependem disso: embarcam
+  `rhino-js-engine.jar`, que registra um `javax.script.ScriptEngineFactory`
+  própria. Confirmado também no backup pré-fix do 1.8.2.5 — o Rhino já estava
+  lá de fábrica.
+- Matriz de homologação atualizada: linha 1.7.1.3 completa, coluna
+  **Export workflow** validada nas três versões de plugin.
+
 ## [1.0.0] — 2026-11-17
 
 Primeira versão pública.

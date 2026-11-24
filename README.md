@@ -63,7 +63,7 @@ Se você está num Mac com Eclipse recente e o Fluig Studio instalado, provavelm
 | Exportar processo/workflow falha com `NoClassDefFoundError: Could not initialize class com.sun.xml.ws.model.Injector` | reflexão bloqueada pelo JPMS | [Fix 1](#fix-1----add-opens-no-eclipseini) |
 | Exportar falha com erro de JAX-WS que não é o acima | biblioteca JAX-WS de 2018 | [Fix 3](#fix-3--rtjar-jax-ws-ri-231--235) |
 | `java.lang.Error: SWT Resource was not properly disposed` ao abrir a árvore de servidores | vazamento de `Image` no plugin | [Fix 2](#fix-2--reportnondisposedfalse) |
-| Erro de script / `ScriptEngine` nulo em plugins antigos (1.7.x) | Nashorn removido do JDK | [Fix 4](#fix-4--nashorn-standalone-no-bundle-classpath) |
+| Exportar falha com **`Ocorreu erro de sintaxe no(s) seguinte(s) evento(s)`** listando *todos* os eventos, mesmo os corretos (plugins 1.7.x) | Nashorn removido do JDK: `getEngineByName("js")` devolve `null` e o plugin trata como erro de sintaxe | [Fix 4](#fix-4--nashorn-standalone-no-bundle-classpath) |
 | Aplicou um patch e nada mudou | cache OSGi | [Fix 5](#fix-5--limpeza-do-cache-osgi) |
 
 O script detecta o que é necessário e **pula o que não é** — rodar numa instalação já correta não faz mal e não baixa nada.
@@ -291,6 +291,35 @@ Injeta `nashorn-core-15.4.jar` + as quatro dependências ASM em `com.totvs.tds.e
 
 O Nashorn foi **removido do JDK no Java 15** (JEP 372). Versões antigas do plugin chamam `new ScriptEngineManager().getEngineByName("js")` e recebem `null`.
 
+Isso não é dedução: está no bytecode do `AbstractExportTotvs.checkEventsErros()` do plugin 1.7.1.3.
+
+```
+ 8: new           // class javax/script/ScriptEngineManager
+17: ldc_w         // String js
+20: invokevirtual // ScriptEngineManager.getEngineByName:(String)ScriptEngine
+…
+139: invokeinterface // ScriptEngine.eval:(String)Object      ← NPE: engine é null
+```
+
+O `catch (Exception)` do laço engole o `NullPointerException`, tenta de novo embrulhando o script em `function _xxx() { … }`, falha de novo, e acrescenta o evento à lista de erros. Como isso acontece com **todos** os eventos, a exportação aborta com:
+
+> Ocorreu erro de sintaxe no(s) seguinte(s) evento(s): …
+
+e lista todos eles — inclusive os corretos. **Script errado não é a causa**; a causa é não haver motor JS para avaliá-los.
+
+Rodando uma sonda com a JRE embarcada (JustJ 21.0.10), sem e com as libs que o Fix 4 injeta:
+
+```
+engines disponiveis:                                       ← nenhum
+getEngineByName("js") = null
+
+engines disponiveis:
+   OpenJDK Nashorn  nomes=[nashorn, Nashorn, js, JS, JavaScript, …]
+getEngineByName("js") = org.openjdk.nashorn.api.scripting.NashornScriptEngine
+```
+
+O nome `js` está na lista de nomes do `NashornScriptEngineFactory` — que é exatamente a string que o plugin pede.
+
 **Aplicado condicionalmente** — veja a seção seguinte.
 
 ### Fix 5 — Limpeza do cache OSGi
@@ -320,11 +349,13 @@ A partir da 1.8.2.x a TOTVS passou a embarcar o Rhino no próprio plugin. Quando
 
 A detecção procura `META-INF/lib/*rhino*.jar` dentro do bundle. Comportamento observado em plugins reais:
 
-| Plugin | Motor JS embarcado | Decisão |
-|---|---|---|
-| 1.7.1.3 | *(nenhum)* | **aplica** Fix 4 |
-| 1.8.2.5 | `rhino-js-engine.jar`, `rhino.jar` | **pula** — nada é baixado |
-| 2.0.0.9 | `fluig-rhino.jar`, `rhino-js-engine.jar` | **pula** — nada é baixado |
+| Plugin | Motor JS embarcado | `ScriptEngineFactory` registrada | Decisão |
+|---|---|---|---|
+| 1.7.1.3 | *(nenhum)* | *(nenhuma)* | **aplica** Fix 4 |
+| 1.8.2.5 | `rhino-js-engine.jar`, `rhino.jar` | `com.sun.phobos.…RhinoScriptEngineFactory` | **pula** — nada é baixado |
+| 2.0.0.9 | `fluig-rhino.jar`, `rhino-js-engine.jar` | `com.sun.phobos.…RhinoScriptEngineFactory` | **pula** — nada é baixado |
+
+A partir da 1.8.2.x o `rhino-js-engine.jar` traz um `META-INF/services/javax.script.ScriptEngineFactory`, então o `ServiceLoader` resolve `"js"` sem depender do JDK. É por isso que **1.8.x e 2.0.x exportam normalmente em Java 21 sem nenhum fix**, e a 1.7.1.3 não.
 
 Na prática, `nashorn-core` + 4 jars ASM (~5 MB) deixam de ser baixados nas versões 1.8.x e 2.0.x.
 
@@ -333,6 +364,14 @@ Para ver o que o **seu** plugin embarca:
 ```bash
 unzip -l "/Applications/SEU-ECLIPSE.app/Contents/Eclipse/plugins/com.totvs.tds.ecm.designer.eclipse_"*.jar | grep "META-INF/lib/"
 ```
+
+E para ver se alguma dessas libs registra um motor JS — o que decide se o Fix 4 é necessário:
+
+```bash
+./fluig-eclipse-fix.command --eclipse "/Applications/SEU-ECLIPSE.app" --non-interactive --report /tmp/fluig.txt && grep '^fix4' /tmp/fluig.txt
+```
+
+`fix4=pulado-rhino` significa que o plugin já resolve `"js"` sozinho.
 
 ---
 
@@ -374,9 +413,11 @@ Legenda: ✅ validado · ⏭️ pulado por detecção (comportamento correto) ·
 
 | Eclipse | JDK (JustJ) | Plugin | Fix 1 | Fix 2 | Fix 3 | Fix 4 | Export workflow |
 |---|---|---|---|---|---|---|---|
-| 4.39.0 | 21.0.12 | 2.0.0.9 | ✅ | ✅ | ⬜ | ⏭️ | ⬜ |
-| 4.39.0 | 21.0.10 | 1.8.2.5 | ✅ | ✅ | ✅ | ⏭️ | ⬜ |
-| 4.39.0 | 21.0.11 | 1.7.1.3 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 4.39.0 | 21.0.12 | 2.0.0.9 | ✅ | ✅ | ⬜ | ⏭️ | ✅ |
+| 4.39.0 | 21.0.10 | 1.8.2.5 | ✅ | ✅ | ✅ | ⏭️ | ✅ |
+| 4.39.0 | 21.0.11 | 1.7.1.3 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+A linha do **1.7.1.3** é a única em que o Fix 4 chega a ser aplicado, e foi validada de ponta a ponta na 1.0.1: antes do fix a exportação acusava erro de sintaxe em todos os eventos; depois, exportou. As linhas 1.8.2.5 e 2.0.0.9 exportam sem nenhum fix de Nashorn porque já embarcam Rhino.
 
 > **Atenção, plugin 1.7.x:** a versão **1.0.0 do script corrompia o manifesto** ao aplicar o Fix 4, e o bundle `designer.eclipse` deixava de resolver — sintoma visível: o diagrama não abre e o processo aparece como XML. Corrigido na 1.0.1. Se você rodou a 1.0.0 num 1.7.x, veja a receita de restauração no [CHANGELOG](CHANGELOG.md#101--2026-11-23).
 
