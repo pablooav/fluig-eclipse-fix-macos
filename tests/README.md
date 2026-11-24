@@ -1,7 +1,7 @@
 # Suíte de testes
 
 ```bash
-./tests/run-tests.sh            # roda tudo
+./tests/run-tests.sh            # 25 casos, 128 asserções
 ./tests/run-tests.sh fix4       # só os casos cujo nome contém "fix4"
 KEEP_FIXTURES=1 ./tests/run-tests.sh   # preserva o sandbox para inspeção
 ```
@@ -95,7 +95,8 @@ teste poderia passar sem exercitar nada.
 | 9 | `fix3_ja_atualizado_nao_reaplica` | detecta 2.3.5 e não mexe no jar |
 | 10 | `fix4_aplica_sem_motor_js` | 5 libs entram no jar e no `Bundle-ClassPath`, ≤72 bytes/linha |
 | 11 | `fix4_ancora_dobrada` | patch funciona com a âncora partida |
-| 12 | `fix4_pula_com_rhino` | nada baixado, jar byte a byte idêntico |
+| 12 | `fix4_preserva_fim_de_linha` | CRLF preservado; nenhum `\r\r\n`; manifesto válido pelo parser estrito |
+| 13 | `fix4_pula_com_rhino` | nada baixado, jar byte a byte idêntico |
 | 13 | `fix4_pula_com_nashorn_presente` | idem, quando o fix já foi aplicado |
 | 14 | `fix4_ancora_ausente` | falha controlada: jar intacto, saída 1 |
 | 15 | `fix4_sem_bundle_eclipse` | ausência do bundle não é erro |
@@ -109,7 +110,7 @@ teste poderia passar sem exercitar nada.
 | 23 | `plugin_fluig_ausente` | saída 2 dizendo qual plugin falta |
 | 24 | `help_e_versao` | `--help`, `--version`, argumento inválido |
 
-Total atual: **24 casos, 121 asserções.**
+Total atual: **25 casos, 128 asserções.**
 
 ## Teste de mutação
 
@@ -123,6 +124,7 @@ revertendo cada correção e conferindo quais casos quebram:
 | voltar a ler o `rt.jar` por pipe (`unzip -p /dev/stdin`) | 8, 9, 18 |
 | remover a detecção de Rhino | 12, 18 |
 | sobrescrever o `eclipse.ini.bak` a cada execução | 2 |
+| não normalizar CRLF antes de redobrar o manifesto | 10, 11, 12 |
 
 Para repetir: copie o script, aplique a mutação e rode
 `FLUIG_FIX_SCRIPT=/caminho/mutante.command ./tests/run-tests.sh`.

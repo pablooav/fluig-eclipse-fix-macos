@@ -25,7 +25,7 @@
 #   FLUIG_FIX_CACHE_DIR, FLUIG_FIX_REPORT, FLUIG_FIX_SEARCH_DIRS
 # =============================================================================
 
-FIX_VERSION="1.0.0"
+FIX_VERSION="1.0.1"
 
 # Cores
 GREEN='\033[0;32m'
@@ -528,7 +528,13 @@ with open(path, 'r', newline='') as f:
 
 # A spec JAR limita linhas do manifesto a 72 bytes e continua com um espaco.
 # A ancora pode cair em cima de uma dobra, entao desdobramos antes de procurar.
+crlf = '\r\n' in raw
 unfolded = re.sub(r'\r?\n ', '', raw)
+# Normaliza para \n ANTES de fatiar. Sem isto, cada linha ficaria com um \r
+# no fim, o join com \r\n produziria \r\r\n, e o \r extra viraria uma linha
+# em branco -- que pela spec encerra a secao principal do manifesto. O
+# resultado e um bundle que o Equinox nao resolve mais.
+unfolded = unfolded.replace('\r\n', '\n')
 
 old = 'META-INF/lib/jaxws-api.jar'
 if old not in unfolded:
@@ -554,7 +560,7 @@ for line in unfolded.split('\n'):
         rest = rest[71:]
 
 with open(path, 'w', newline='') as f:
-    f.write('\r\n'.join(out) if '\r\n' in raw else '\n'.join(out))
+    f.write(('\r\n' if crlf else '\n').join(out))
 PYEOF
         MANIFEST_STATUS=$?
 

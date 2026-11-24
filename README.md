@@ -5,7 +5,7 @@
 [![plataforma](https://img.shields.io/badge/plataforma-macOS%20Apple%20Silicon-1f2328?logo=apple&logoColor=white)](#escopo-e-requisitos)
 [![eclipse](https://img.shields.io/badge/Eclipse-Java%2017%2B-2c2255?logo=eclipseide&logoColor=white)](#escopo-e-requisitos)
 [![fluig](https://img.shields.io/badge/Fluig%20Studio-1.7%20%C2%B7%201.8%20%C2%B7%202.0-0b5fff)](#matriz-de-homologação)
-[![testes](https://img.shields.io/badge/testes-24%20casos%20%C2%B7%20121%20asser%C3%A7%C3%B5es-3fb950)](#testes)
+[![testes](https://img.shields.io/badge/testes-25%20casos%20%C2%B7%20128%20asser%C3%A7%C3%B5es-3fb950)](#testes)
 [![licença](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)](LICENSE)
 
 Faz o **plugin TOTVS Fluig Studio** funcionar no Eclipse em **macOS Apple Silicon** com Java 17 ou superior.
@@ -63,7 +63,7 @@ Se você está num Mac com Eclipse recente e o Fluig Studio instalado, provavelm
 | Exportar processo/workflow falha com `NoClassDefFoundError: Could not initialize class com.sun.xml.ws.model.Injector` | reflexão bloqueada pelo JPMS | [Fix 1](#fix-1----add-opens-no-eclipseini) |
 | Exportar falha com erro de JAX-WS que não é o acima | biblioteca JAX-WS de 2018 | [Fix 3](#fix-3--rtjar-jax-ws-ri-231--235) |
 | `java.lang.Error: SWT Resource was not properly disposed` ao abrir a árvore de servidores | vazamento de `Image` no plugin | [Fix 2](#fix-2--reportnondisposedfalse) |
-| Erro de script / `ScriptEngine` nulo em plugins antigos (1.7.x) | Nashorn removido do JDK | [Fix 4](#fix-4--nashorn-standalone-no-bundle-classpath) |
+| Exportar falha com **`Ocorreu erro de sintaxe no(s) seguinte(s) evento(s)`** listando *todos* os eventos, mesmo os corretos (plugins 1.7.x) | Nashorn removido do JDK: `getEngineByName("js")` devolve `null` e o plugin trata como erro de sintaxe | [Fix 4](#fix-4--nashorn-standalone-no-bundle-classpath) |
 | Aplicou um patch e nada mudou | cache OSGi | [Fix 5](#fix-5--limpeza-do-cache-osgi) |
 
 O script detecta o que é necessário e **pula o que não é** — rodar numa instalação já correta não faz mal e não baixa nada.
@@ -291,6 +291,35 @@ Injeta `nashorn-core-15.4.jar` + as quatro dependências ASM em `com.totvs.tds.e
 
 O Nashorn foi **removido do JDK no Java 15** (JEP 372). Versões antigas do plugin chamam `new ScriptEngineManager().getEngineByName("js")` e recebem `null`.
 
+Isso não é dedução: está no bytecode do `AbstractExportTotvs.checkEventsErros()` do plugin 1.7.1.3.
+
+```
+ 8: new           // class javax/script/ScriptEngineManager
+17: ldc_w         // String js
+20: invokevirtual // ScriptEngineManager.getEngineByName:(String)ScriptEngine
+…
+139: invokeinterface // ScriptEngine.eval:(String)Object      ← NPE: engine é null
+```
+
+O `catch (Exception)` do laço engole o `NullPointerException`, tenta de novo embrulhando o script em `function _xxx() { … }`, falha de novo, e acrescenta o evento à lista de erros. Como isso acontece com **todos** os eventos, a exportação aborta com:
+
+> Ocorreu erro de sintaxe no(s) seguinte(s) evento(s): …
+
+e lista todos eles — inclusive os corretos. **Script errado não é a causa**; a causa é não haver motor JS para avaliá-los.
+
+Rodando uma sonda com a JRE embarcada (JustJ 21.0.10), sem e com as libs que o Fix 4 injeta:
+
+```
+engines disponiveis:                                       ← nenhum
+getEngineByName("js") = null
+
+engines disponiveis:
+   OpenJDK Nashorn  nomes=[nashorn, Nashorn, js, JS, JavaScript, …]
+getEngineByName("js") = org.openjdk.nashorn.api.scripting.NashornScriptEngine
+```
+
+O nome `js` está na lista de nomes do `NashornScriptEngineFactory` — que é exatamente a string que o plugin pede.
+
 **Aplicado condicionalmente** — veja a seção seguinte.
 
 ### Fix 5 — Limpeza do cache OSGi
@@ -320,11 +349,13 @@ A partir da 1.8.2.x a TOTVS passou a embarcar o Rhino no próprio plugin. Quando
 
 A detecção procura `META-INF/lib/*rhino*.jar` dentro do bundle. Comportamento observado em plugins reais:
 
-| Plugin | Motor JS embarcado | Decisão |
-|---|---|---|
-| 1.7.1.3 | *(nenhum)* | **aplica** Fix 4 |
-| 1.8.2.5 | `rhino-js-engine.jar`, `rhino.jar` | **pula** — nada é baixado |
-| 2.0.0.9 | `fluig-rhino.jar`, `rhino-js-engine.jar` | **pula** — nada é baixado |
+| Plugin | Motor JS embarcado | `ScriptEngineFactory` registrada | Decisão |
+|---|---|---|---|
+| 1.7.1.3 | *(nenhum)* | *(nenhuma)* | **aplica** Fix 4 |
+| 1.8.2.5 | `rhino-js-engine.jar`, `rhino.jar` | `com.sun.phobos.…RhinoScriptEngineFactory` | **pula** — nada é baixado |
+| 2.0.0.9 | `fluig-rhino.jar`, `rhino-js-engine.jar` | `com.sun.phobos.…RhinoScriptEngineFactory` | **pula** — nada é baixado |
+
+A partir da 1.8.2.x o `rhino-js-engine.jar` traz um `META-INF/services/javax.script.ScriptEngineFactory`, então o `ServiceLoader` resolve `"js"` sem depender do JDK. É por isso que **1.8.x e 2.0.x exportam normalmente em Java 21 sem nenhum fix**, e a 1.7.1.3 não.
 
 Na prática, `nashorn-core` + 4 jars ASM (~5 MB) deixam de ser baixados nas versões 1.8.x e 2.0.x.
 
@@ -333,6 +364,14 @@ Para ver o que o **seu** plugin embarca:
 ```bash
 unzip -l "/Applications/SEU-ECLIPSE.app/Contents/Eclipse/plugins/com.totvs.tds.ecm.designer.eclipse_"*.jar | grep "META-INF/lib/"
 ```
+
+E para ver se alguma dessas libs registra um motor JS — o que decide se o Fix 4 é necessário:
+
+```bash
+./fluig-eclipse-fix.command --eclipse "/Applications/SEU-ECLIPSE.app" --non-interactive --report /tmp/fluig.txt && grep '^fix4' /tmp/fluig.txt
+```
+
+`fix4=pulado-rhino` significa que o plugin já resolve `"js"` sozinho.
 
 ---
 
@@ -374,9 +413,13 @@ Legenda: ✅ validado · ⏭️ pulado por detecção (comportamento correto) ·
 
 | Eclipse | JDK (JustJ) | Plugin | Fix 1 | Fix 2 | Fix 3 | Fix 4 | Export workflow |
 |---|---|---|---|---|---|---|---|
-| 4.39.0 | 21.0.12 | 2.0.0.9 | ✅ | ✅ | ⬜ | ⏭️ | ⬜ |
-| 4.39.0 | 21.0.10 | 1.8.2.5 | ✅ | ✅ | ✅ | ⏭️ | ⬜ |
-| 4.39.0 | 21.0.11 | 1.7.1.3 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 4.39.0 | 21.0.12 | 2.0.0.9 | ✅ | ✅ | ⬜ | ⏭️ | ✅ |
+| 4.39.0 | 21.0.10 | 1.8.2.5 | ✅ | ✅ | ✅ | ⏭️ | ✅ |
+| 4.39.0 | 21.0.11 | 1.7.1.3 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+A linha do **1.7.1.3** é a única em que o Fix 4 chega a ser aplicado, e foi validada de ponta a ponta na 1.0.1: antes do fix a exportação acusava erro de sintaxe em todos os eventos; depois, exportou. As linhas 1.8.2.5 e 2.0.0.9 exportam sem nenhum fix de Nashorn porque já embarcam Rhino.
+
+> **Atenção, plugin 1.7.x:** a versão **1.0.0 do script corrompia o manifesto** ao aplicar o Fix 4, e o bundle `designer.eclipse` deixava de resolver — sintoma visível: o diagrama não abre e o processo aparece como XML. Corrigido na 1.0.1. Se você rodou a 1.0.0 num 1.7.x, veja a receita de restauração no [CHANGELOG](CHANGELOG.md#101--2026-11-23).
 
 Esta tabela é o contrato do que não pode regredir. **Rodou o script numa combinação que não está aqui? [Abra um PR com a sua linha](#contribuindo)** — é a contribuição mais útil que este projeto pode receber, e não exige escrever código.
 
@@ -402,6 +445,7 @@ Atualizar o Fluig Studio pelo p2 **substitui os jars** e reverte os patches. **D
 | Fix 2 passa a remover ocorrências repetidas da flag SWT |
 | Falha de um Fix deixa de abortar os demais; o código de saída distingue 0/1/2 |
 | Modo não interativo, `--offline`, `--cache-dir`, `--search-dirs` e `--report` |
+| **1.0.1** — Fix 4 passa a normalizar CRLF antes de redobrar: o `\r` sobrando virava `\r\r\n` e inutilizava o bundle |
 
 Dois desses merecem explicação, porque são armadilhas fáceis de repetir.
 
@@ -452,7 +496,7 @@ O `--cache-dir` ajuda quem configura várias máquinas: baixe uma vez, compartil
 Suíte automatizada em `tests/`. **Não precisa de Eclipse instalado e não acessa a rede.**
 
 ```bash
-./tests/run-tests.sh            # 24 casos, 121 asserções
+./tests/run-tests.sh            # 25 casos, 128 asserções
 ./tests/run-tests.sh fix4       # só os casos cujo nome contém "fix4"
 KEEP_FIXTURES=1 ./tests/run-tests.sh   # preserva o sandbox para inspeção
 ```
@@ -466,7 +510,7 @@ O que está coberto:
 | Fix 1 | instalação limpa · idempotência · sem `--add-modules` · colapso de duplicatas |
 | Fix 2 | `true`→`false` · flag ausente · já correta |
 | Fix 3 | patch 2.3.1→2.3.5 com backup e conteúdo preservado · detecção de "já atualizado" |
-| Fix 4 | aplica sem motor JS · **âncora dobrada** · pula com Rhino · pula com Nashorn · âncora ausente · bundle ausente |
+| Fix 4 | aplica sem motor JS · **âncora dobrada** · **preserva CRLF do manifesto** · pula com Rhino · pula com Nashorn · âncora ausente · bundle ausente |
 | Fix 5 | cache removido · 2ª execução inalterada |
 | Cenários | plugin recente (nada a fazer) · plugin antigo (Fix 3 + Fix 4) |
 | Robustez | offline sem cache não corrompe · caminho com espaços e acentos · seleção por nome · Eclipse inexistente · plugin ausente · `--help`/`--version` |
@@ -482,6 +526,7 @@ Um teste que passa contra um script quebrado não serve. A suíte foi verificada
 | voltar a ler o `rt.jar` por pipe | 3 |
 | remover a detecção de Rhino | 2 |
 | sobrescrever o `eclipse.ini.bak` sempre | 1 |
+| não normalizar CRLF antes de redobrar o manifesto | 3 |
 
 ```bash
 FLUIG_FIX_SCRIPT=/caminho/mutante.command ./tests/run-tests.sh

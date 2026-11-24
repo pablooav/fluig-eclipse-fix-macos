@@ -89,6 +89,62 @@ print(max((len(l) for l in data.split(sep)), default=0))
 "
 }
 
+# Valida o MANIFEST.MF como o Equinox valida: bytes crus, sem a normalização
+# de fim de linha que o modo texto do Python faz (foi esse ponto cego que
+# deixou passar o bug do \r\r\n). Imprime os problemas; vazio = tudo certo.
+manifesto_problemas() { # <jar>
+    unzip -p "$1" META-INF/MANIFEST.MF 2>/dev/null | python3 -c "
+import sys, re
+d = sys.stdin.buffer.read()
+p = []
+if not d:
+    print('MANIFEST.MF ausente ou ilegivel'); raise SystemExit
+n = d.count(b'\r\r\n')
+if n:
+    p.append('CR duplicado (\\r\\r\\n) x%d' % n)
+
+# Pela spec, a linha fisica termina em \r\n, \r ou \n, e a PRIMEIRA linha
+# vazia encerra a secao principal.
+linhas = re.split(br'\r\n|\r|\n', d)
+fim = linhas.index(b'') if b'' in linhas else len(linhas)
+principal = linhas[:fim]
+
+for l in principal:
+    if len(l) > 72:
+        p.append('linha fisica com %d bytes (limite 72)' % len(l))
+        break
+
+logicas = []
+for l in principal:
+    if l.startswith(b' ') and logicas:
+        logicas[-1] += l[1:]
+    else:
+        logicas.append(l)
+
+headers = set()
+for l in logicas:
+    if b':' in l:
+        headers.add(l.split(b':', 1)[0].decode('utf-8', 'replace'))
+
+for req in ('Manifest-Version', 'Bundle-SymbolicName', 'Bundle-ClassPath'):
+    if req not in headers:
+        p.append('header fora da secao principal: ' + req)
+
+print('; '.join(p))
+"
+}
+
+# Estilo de fim de linha físico do manifesto: crlf, lf ou misto
+manifesto_eol() { # <jar>
+    unzip -p "$1" META-INF/MANIFEST.MF 2>/dev/null | python3 -c "
+import sys
+d = sys.stdin.buffer.read()
+crlf = d.count(b'\r\n')
+lf = d.count(b'\n') - crlf
+print('crlf' if crlf and not lf else 'lf' if lf and not crlf else 'misto')
+"
+}
+
 rt_version_in() { # <plugin jar> → 'JAX-WS RI x.y.z'
     local probe; probe=$(mktemp)
     unzip -p "$1" META-INF/lib/rt.jar > "$probe" 2>/dev/null
@@ -298,6 +354,7 @@ caso_fix4_aplica_sem_motor_js() {
     local maxlen; maxlen=$(max_manifest_line "$jar")
     if [ "$maxlen" -le 72 ]; then _pass "manifesto respeita o limite de 72 bytes ($maxlen)"
     else _fail "manifesto respeita o limite de 72 bytes" "maior linha: $maxlen"; fi
+    assert_eq "manifesto estruturalmente válido (parser estrito)" "$(manifesto_problemas "$jar")" ""
     assert_file_exists "backup .bak.nashorn criado" "${jar}.bak.nashorn"
     assert_not_contains "backup é anterior ao patch" "$(manifest_unfolded "${jar}.bak.nashorn")" "nashorn-core.jar"
 }
@@ -331,6 +388,37 @@ caso_fix4_ancora_dobrada() {
     local maxlen; maxlen=$(max_manifest_line "$jar")
     if [ "$maxlen" -le 72 ]; then _pass "redobra respeita 72 bytes ($maxlen)"
     else _fail "redobra respeita 72 bytes" "maior linha: $maxlen"; fi
+    assert_eq "manifesto estruturalmente válido (parser estrito)" "$(manifesto_problemas "$jar")" ""
+}
+
+caso_fix4_preserva_fim_de_linha() {
+    # Regressão real (quebrou um Eclipse 1.7.1.3 em produção): o manifesto era
+    # desdobrado sem normalizar CRLF, cada linha ficava com um \r no fim e o
+    # join com \r\n produzia \r\r\n. O \r extra vira uma LINHA EM BRANCO, que
+    # pela spec encerra a seção principal — o Equinox então não enxerga mais o
+    # Bundle-SymbolicName e o bundle inteiro deixa de resolver.
+    local t app jar antes depois
+    t=$(sandbox); app=$(fixture_eclipse "$t" "Eclipse EOL" completo)
+    fixture_model_plugin  "$app" 1.7.1.3 2.3.5
+    fixture_eclipse_plugin "$app" 1.7.1.3 plain
+    jar=$(eclipse_jar "$app")
+
+    antes=$(manifesto_eol "$jar")
+    assert_eq "fixture nasce com CRLF, como os bundles reais" "$antes" "crlf"
+
+    run_fix "$app"
+
+    assert_eq "fix4 aplicado" "$(rep fix4)" "aplicado"
+    depois=$(manifesto_eol "$jar")
+    assert_eq "fim de linha preservado após o patch" "$depois" "$antes"
+
+    local crcr
+    crcr=$(unzip -p "$jar" META-INF/MANIFEST.MF | python3 -c \
+        "import sys; print(sys.stdin.buffer.read().count(b'\\r\\r\\n'))")
+    assert_eq "nenhum CR duplicado introduzido" "$crcr" "0"
+
+    assert_eq "manifesto estruturalmente válido (parser estrito)" \
+        "$(manifesto_problemas "$jar")" ""
 }
 
 caso_fix4_pula_com_rhino() {
@@ -552,6 +640,7 @@ CASES=(
     caso_fix3_ja_atualizado_nao_reaplica
     caso_fix4_aplica_sem_motor_js
     caso_fix4_ancora_dobrada
+    caso_fix4_preserva_fim_de_linha
     caso_fix4_pula_com_rhino
     caso_fix4_pula_com_nashorn_presente
     caso_fix4_ancora_ausente
